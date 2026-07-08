@@ -8,6 +8,7 @@ module Rudder.Table exposing
     , Customizations, CustomizationsBuilder, buildCustomizations
     , CsvExportData
     , CsvExportConfig, CsvExportOptions
+    , FooterOptions
     , updateData, updateFilter, updateDataWithFilter
     , updateExportToCsv
     , Model, Msg
@@ -44,6 +45,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 @docs Customizations, CustomizationsBuilder, buildCustomizations
 @docs CsvExportData
 @docs CsvExportConfig, CsvExportOptions
+@docs FooterOptions
 
 
 # State-changing functions
@@ -72,7 +74,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 
 import Csv.Encode
 import File.Download
-import Html exposing (Attribute, Html, button, div, i, input, span, table, tbody, td, text, th, thead, tr)
+import Html exposing (Attribute, Html, b, button, div, i, input, span, table, tbody, td, text, tfoot, th, thead, tr)
 import Html.Attributes exposing (attribute, class, colspan, id, placeholder, rowspan, style, tabindex, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode exposing (Value)
@@ -193,6 +195,14 @@ type alias CsvExportData =
     { filename : String, csv : String }
 
 
+{-| Option to either hide or show a footer on the bottom of the table.
+If shown, the footer will indicate the number of visible entries as well as the total number of entries in the table
+-}
+type FooterOptions
+    = NoFooter
+    | Footer
+
+
 {-| Table display customizations for adding custom HTML attributes, e.g. `class` to parts of the table.
 The defaults should be fine, but customizations can be added and defined depending on each case.
 -}
@@ -207,6 +217,7 @@ type alias Customizations row msg =
     -- , tfoot : Maybe (HtmlDetails msg)
     , tbodyAttrs : List (Attribute msg)
     , trAttrs : row -> List (Attribute msg)
+    , footerTextAttrs : List (Attribute msg)
 
     -- column-specific attributes
     , thAttrs : ColumnName -> List (Attribute msg)
@@ -225,6 +236,7 @@ type alias Options row msg =
     , storage : StorageOptions msg
     , filter : FilterOptions row msg
     , csvExport : CsvExportOptions row msg
+    , footer : FooterOptions
     }
 
 
@@ -336,6 +348,7 @@ type alias OptionsBuilder row msg =
     , withStorage : StorageOptionsConfig msg -> Options row msg -> Options row msg
     , withFilter : FilterOptionsType row msg -> Options row msg -> Options row msg
     , withCsvExport : CsvExportConfig row msg -> Options row msg -> Options row msg
+    , withFooter : Options row msg -> Options row msg
     }
 
 
@@ -348,6 +361,7 @@ type alias CustomizationsBuilder row msg =
     , withOptionsHeaderAttrs : List (Attribute msg) -> Customizations row msg -> Customizations row msg
     , withTheadAttrs : List (Attribute msg) -> Customizations row msg -> Customizations row msg
     , withTbodyAttrs : List (Attribute msg) -> Customizations row msg -> Customizations row msg
+    , withfooterTextAttrs : List (Attribute msg) -> Customizations row msg -> Customizations row msg
     , withTrAttrs : (row -> List (Attribute msg)) -> Customizations row msg -> Customizations row msg
     , withThAttrs : (ColumnName -> List (Attribute msg)) -> Customizations row msg -> Customizations row msg
     , withTdAttrs : (ColumnName -> List (Attribute msg)) -> Customizations row msg -> Customizations row msg
@@ -375,6 +389,7 @@ buildOptions =
     , withStorage = \opt -> \state -> { state | storage = StorageOptions opt }
     , withFilter = \opt -> \state -> { state | filter = FilterOptions opt }
     , withCsvExport = \opt -> \state -> { state | csvExport = CsvExportButton opt }
+    , withFooter = \state -> { state | footer = Footer }
     }
 
 
@@ -388,6 +403,7 @@ buildCustomizations =
     , withOptionsHeaderAttrs = \custom -> \state -> { state | optionsHeaderAttrs = custom }
     , withTheadAttrs = \custom -> \state -> { state | theadAttrs = custom }
     , withTbodyAttrs = \custom -> \state -> { state | tbodyAttrs = custom }
+    , withfooterTextAttrs = \custom -> \state -> { state | footerTextAttrs = custom }
     , withTrAttrs = \custom -> \state -> { state | trAttrs = custom }
     , withThAttrs = \custom -> \state -> { state | thAttrs = custom }
     , withTdAttrs = \custom -> \state -> { state | tdAttrs = custom }
@@ -416,6 +432,7 @@ defaultOptions =
     , storage = NoStorage
     , filter = NoFilter
     , csvExport = NoCsvExportButton
+    , footer = NoFooter
     }
 
 
@@ -431,6 +448,7 @@ defaultCustomizations =
     -- , tfoot = Nothing
     , tbodyAttrs = []
     , trAttrs = \_ -> []
+    , footerTextAttrs = []
 
     -- column-specific attributes
     , thAttrs = \_ -> []
@@ -821,7 +839,7 @@ mapAttributes =
 {-| The main view function for the table
 -}
 view : Model row msg -> Html (Msg msg)
-view (Model ({ columns, data, options } as model)) =
+view (Model ({ columns, data, options, initialData } as model)) =
     let
         theadAttrs =
             options.customizations.theadAttrs |> mapAttributes
@@ -832,11 +850,16 @@ view (Model ({ columns, data, options } as model)) =
         tableContainerAttrs =
             options.customizations.tableContainerAttrs |> mapAttributes
 
+        footer =
+            viewFooter (NonEmptyList.length columns) (List.length data) (List.length initialData) options
+
         tableView =
             table (options.customizations.tableAttrs |> mapAttributes)
-                [ thead theadAttrs [ tableHeader columns model options.customizations.thAttrs ]
-                , tbody tbodyAttrs (tableBody columns data options.customizations.trAttrs options.customizations.tdAttrs)
-                ]
+                ([ thead theadAttrs [ tableHeader columns model options.customizations.thAttrs ]
+                 , tbody tbodyAttrs (tableBody columns data options.customizations.trAttrs options.customizations.tdAttrs)
+                 ]
+                    ++ footer
+                )
 
         content =
             case viewHeaderOptions model.options of
@@ -939,6 +962,31 @@ viewCsvExportButton options =
                     , i [ class "fa fa-table" ] []
                     ]
                 ]
+
+
+viewFooter : Int -> Int -> Int -> Options row msg -> List (Html (Msg msg))
+viewFooter columnsNumber dataLength initialDataLength options =
+    case options.footer of
+        NoFooter ->
+            []
+
+        Footer ->
+            [ tfoot []
+                [ tr []
+                    [ td [ colspan columnsNumber ]
+                        [ div
+                            (options.customizations.footerTextAttrs |> mapAttributes)
+                            [ text "Showing "
+                            , b [] [ dataLength |> String.fromInt |> text ]
+                            , text " entries "
+                            , text "(filtered from "
+                            , b [] [ initialDataLength |> String.fromInt |> text ]
+                            , text " total entries)"
+                            ]
+                        ]
+                    ]
+                ]
+            ]
 
 
 tableHeader : NonEmptyList.Nonempty (Column row msg) -> Sort a -> (ColumnName -> List (Attribute msg)) -> Html (Msg msg)
