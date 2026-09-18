@@ -10,7 +10,7 @@ module Rudder.Table exposing
     , CsvExportConfig, CsvExportOptions
     , FooterOptions
     , updateData, updateFilter, updateDataWithFilter
-    , updateExportToCsv
+    , updateExportToCsv, updateExportAllToCsv
     , Model, Msg
     , view, update, init
     , OutMsg(..)
@@ -51,7 +51,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 # State-changing functions
 
 @docs updateData, updateFilter, updateDataWithFilter
-@docs updateExportToCsv
+@docs updateExportToCsv, updateExportAllToCsv
 
 
 # Common TEA
@@ -278,7 +278,9 @@ type Msg parentMsg
     | FilterInputChanged String
     | UpdateFilterMsg SearchFilterState
     | ExportCsvRequest
+    | ExportCsvAllRequest
     | ExportCsvMsg String
+    | ExportCsvAllMsg String
     | ParentMsg parentMsg
     | EmptyMsg
 
@@ -289,6 +291,7 @@ type OutMsg parentMsg
     = RefreshRequested
     | OnHtml parentMsg
     | CsvExportRequested
+    | CsvExportAllRequested
 
 
 {-| A representation of concrete effects in the type system to allow testing
@@ -536,7 +539,18 @@ interpret =
         >> Cmd.batch
 
 
-{-| Update function to call in order to send the an "Export to CSV" Msg from the parent component
+{-| Update function to call in order to send the an "Export all data to CSV" Msg from the parent component
+-}
+updateExportAllToCsv : Model row msg -> String -> ( Model row msg, Cmd msg, Maybe (OutMsg msg) )
+updateExportAllToCsv model filename =
+    let
+        ( updatedModel, effect, outMsg ) =
+            updateWithEffect (ExportCsvAllMsg filename) model
+    in
+    ( updatedModel, interpret effect, outMsg )
+
+
+{-| Update function to call in order to send the an "Export filtered data to CSV" Msg from the parent component
 -}
 updateExportToCsv : Model row msg -> String -> ( Model row msg, Cmd msg, Maybe (OutMsg msg) )
 updateExportToCsv model filename =
@@ -574,13 +588,24 @@ updateWithEffect msg (Model model) =
             in
             ( newModel, effects, Nothing )
 
+        ExportCsvAllRequest ->
+            ( Model model, [], Just CsvExportAllRequested )
+
         ExportCsvRequest ->
             ( Model model, [], Just CsvExportRequested )
+
+        ExportCsvAllMsg filename ->
+            case model.options.csvExport of
+                CsvExportButton csvExportConfig ->
+                    ( Model model, [ tableToCsvAll (Model model) csvExportConfig filename |> DownloadTableAsCsv ], Nothing )
+
+                NoCsvExportButton ->
+                    ( Model model, [ IgnoreExportCsvMsgNoConfig ], Nothing )
 
         ExportCsvMsg filename ->
             case model.options.csvExport of
                 CsvExportButton csvExportConfig ->
-                    ( Model model, [ DownloadTableAsCsv (tableToCsv (Model model) csvExportConfig filename) ], Nothing )
+                    ( Model model, [ tableToCsv (Model model) csvExportConfig filename |> DownloadTableAsCsv ], Nothing )
 
                 NoCsvExportButton ->
                     ( Model model, [ IgnoreExportCsvMsgNoConfig ], Nothing )
@@ -777,22 +802,36 @@ storageValueTypeText valueType =
 {- CSV EXPORT -}
 
 
-{-| Table to CSV export function
+{-| All data to CSV export function
+-}
+tableToCsvAll : Model row msg -> CsvExportConfig row msg -> String -> CsvExportData
+tableToCsvAll (Model model) csvExportConfig filename =
+    dataToCsv model.columns model.initialData csvExportConfig filename
+
+
+{-| Filtered data to CSV export function
 -}
 tableToCsv : Model row msg -> CsvExportConfig row msg -> String -> CsvExportData
-tableToCsv (Model model) { entryToStringList } filename =
+tableToCsv (Model model) csvExportConfig filename =
+    dataToCsv model.columns model.data csvExportConfig filename
+
+
+{-| Data to CSV export function
+-}
+dataToCsv : NonEmptyList.Nonempty (Column row msg) -> List row -> CsvExportConfig row msg -> String -> CsvExportData
+dataToCsv tableColumns tableData { entryToStringList } filename =
     let
         -- first row contains column names
         columns : List String
         columns =
-            model.columns
+            tableColumns
                 |> NonEmptyList.toList
                 |> List.map (\c -> c.name)
                 |> List.map (\(ColumnName c) -> c)
 
         data : List (List String)
         data =
-            model.data |> List.map entryToStringList
+            tableData |> List.map entryToStringList
     in
     data
         |> Csv.Encode.encode

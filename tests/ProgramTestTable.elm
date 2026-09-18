@@ -2,13 +2,13 @@ module ProgramTestTable exposing (suite)
 
 import Browser
 import Expect
-import Html exposing (Html, button)
+import Html exposing (Html)
 import Html.Attributes as Attributes
 import List.Nonempty as NonEmpty
 import Ordering exposing (Ordering)
 import ProgramTest exposing (ProgramTest, clickButton, ensureViewHasNot, expectLastEffect, expectViewHas, expectViewHasNot, fillIn, start, withBaseUrl)
 import Rudder.Filters as Filters exposing (byValues)
-import Rudder.Table as Table exposing (Column, ColumnName(..), Config, Effect(..), FilterOptionsType(..), Model, Msg, Options, OutMsg(..), SortOrder(..), buildOptions, emptyMsg, exportCsv, init)
+import Rudder.Table as Table exposing (Column, ColumnName(..), Config, Effect(..), FilterOptionsType(..), Model, Msg, Options, OutMsg(..), SortOrder(..), buildOptions, emptyMsg)
 import Test exposing (..)
 import Test.Html.Selector exposing (all, attribute, class, classes, containing, exactText, tag, text)
 import Url exposing (Url)
