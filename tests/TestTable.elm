@@ -240,7 +240,7 @@ suite =
             [ fuzz (nonEmptyListFuzzer columnFuzz) "test csv export on empty table that does not define a csv export configuration" <|
                 \c ->
                     init (buildConfig.newConfig c) []
-                        |> updateWithEffect (exportCsv "filename")
+                        |> updateWithEffect (exportCsv ExportFiltered "filename")
                         |> effect
                         |> Expect.equal [ IgnoreExportCsvMsgNoConfig ]
             , fuzz
@@ -249,7 +249,7 @@ suite =
               <|
                 \m ->
                     m
-                        |> updateWithEffect (exportCsv "myFile")
+                        |> updateWithEffect (exportCsv ExportFiltered "myFile")
                         |> effect
                         |> Expect.equal [ DownloadTableAsCsv (CsvExportData "myFile" "") ]
             , fuzz
@@ -262,7 +262,7 @@ suite =
               <|
                 \m ->
                     m
-                        |> updateWithEffect (exportCsv "otherFile")
+                        |> updateWithEffect (exportCsv ExportFiltered "otherFile")
                         |> effect
                         |> Expect.equal [ DownloadTableAsCsv (CsvExportData "otherFile" "name,age\u{000D}\nAlice,45\u{000D}\nBob,37") ]
             , fuzz
@@ -278,7 +278,7 @@ suite =
               <|
                 \m ->
                     m
-                        |> updateWithEffect (exportCsv "yetAnotherFile")
+                        |> updateWithEffect (exportCsv ExportFiltered "yetAnotherFile")
                         |> effect
                         |> Expect.equal [ DownloadTableAsCsv (CsvExportData "yetAnotherFile" "\"\"\"Name\"\"\",\"Age,probably\"\u{000D}\n\"\"\"Al\"\"ice\"\"\",45\u{000D}\n\"Bo,b\",37\u{000D}\n\"\nEve\",28") ]
             ]

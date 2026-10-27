@@ -7,10 +7,11 @@ module Rudder.Table exposing
     , StorageOptions, StorageOptionsConfig, StorageKey
     , Customizations, CustomizationsBuilder, buildCustomizations
     , CsvExportData
+    , CsvExportType(..)
     , CsvExportConfig, CsvExportOptions
     , FooterOptions
     , updateData, updateFilter, updateDataWithFilter
-    , updateExportToCsv, updateExportAllToCsv
+    , updateExportToCsv
     , Model, Msg
     , view, update, init
     , OutMsg(..)
@@ -44,6 +45,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 @docs StorageOptions, StorageOptionsConfig, StorageKey
 @docs Customizations, CustomizationsBuilder, buildCustomizations
 @docs CsvExportData
+@docs CsvExportType
 @docs CsvExportConfig, CsvExportOptions
 @docs FooterOptions
 
@@ -51,7 +53,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 # State-changing functions
 
 @docs updateData, updateFilter, updateDataWithFilter
-@docs updateExportToCsv, updateExportAllToCsv
+@docs updateExportToCsv
 
 
 # Common TEA
@@ -74,8 +76,8 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 
 import Csv.Encode
 import File.Download
-import Html exposing (Attribute, Html, b, button, div, i, input, span, table, tbody, td, text, tfoot, th, thead, tr)
-import Html.Attributes exposing (attribute, class, colspan, id, placeholder, rowspan, style, tabindex, type_, value)
+import Html exposing (Attribute, Html, b, button, div, i, input, li, span, table, tbody, td, text, tfoot, th, thead, tr, ul)
+import Html.Attributes exposing (attribute, class, colspan, id, placeholder, rowspan, style, type_, value)
 import Html.Events exposing (onClick, onInput)
 import Json.Decode exposing (Value)
 import Json.Encode as Encode
@@ -269,6 +271,17 @@ type Model row msg
         }
 
 
+{-| When exporting a table to CSV, it is possible to export either:
+
+  - all the rows of the table (ExportAll), or
+  - only the rows that match the currently applied filters (ExportFiltered)
+
+-}
+type CsvExportType
+    = ExportAll
+    | ExportFiltered
+
+
 {-| The internal message which is handled internally and which can be used to execute messages from parent that were
 passed in the configuration
 -}
@@ -277,10 +290,8 @@ type Msg parentMsg
     | RefreshMsg
     | FilterInputChanged String
     | UpdateFilterMsg SearchFilterState
-    | ExportCsvRequest
-    | ExportCsvAllRequest
-    | ExportCsvMsg String
-    | ExportCsvAllMsg String
+    | ExportCsvRequest CsvExportType
+    | ExportCsvMsg CsvExportType String
     | ParentMsg parentMsg
     | EmptyMsg
 
@@ -290,8 +301,7 @@ type Msg parentMsg
 type OutMsg parentMsg
     = RefreshRequested
     | OnHtml parentMsg
-    | CsvExportRequested
-    | CsvExportAllRequested
+    | CsvExportRequested CsvExportType
 
 
 {-| A representation of concrete effects in the type system to allow testing
@@ -539,24 +549,13 @@ interpret =
         >> Cmd.batch
 
 
-{-| Update function to call in order to send the an "Export all data to CSV" Msg from the parent component
+{-| Update function to call in order to send the an "Export data to CSV" Msg from the parent component
 -}
-updateExportAllToCsv : Model row msg -> String -> ( Model row msg, Cmd msg, Maybe (OutMsg msg) )
-updateExportAllToCsv model filename =
+updateExportToCsv : Model row msg -> CsvExportType -> String -> ( Model row msg, Cmd msg, Maybe (OutMsg msg) )
+updateExportToCsv model csvExportType filename =
     let
         ( updatedModel, effect, outMsg ) =
-            updateWithEffect (ExportCsvAllMsg filename) model
-    in
-    ( updatedModel, interpret effect, outMsg )
-
-
-{-| Update function to call in order to send the an "Export filtered data to CSV" Msg from the parent component
--}
-updateExportToCsv : Model row msg -> String -> ( Model row msg, Cmd msg, Maybe (OutMsg msg) )
-updateExportToCsv model filename =
-    let
-        ( updatedModel, effect, outMsg ) =
-            updateWithEffect (ExportCsvMsg filename) model
+            updateWithEffect (ExportCsvMsg csvExportType filename) model
     in
     ( updatedModel, interpret effect, outMsg )
 
@@ -588,24 +587,13 @@ updateWithEffect msg (Model model) =
             in
             ( newModel, effects, Nothing )
 
-        ExportCsvAllRequest ->
-            ( Model model, [], Just CsvExportAllRequested )
+        ExportCsvRequest csvExportType ->
+            ( Model model, [], Just (CsvExportRequested csvExportType) )
 
-        ExportCsvRequest ->
-            ( Model model, [], Just CsvExportRequested )
-
-        ExportCsvAllMsg filename ->
+        ExportCsvMsg csvExportType filename ->
             case model.options.csvExport of
                 CsvExportButton csvExportConfig ->
-                    ( Model model, [ tableToCsvAll (Model model) csvExportConfig filename |> DownloadTableAsCsv ], Nothing )
-
-                NoCsvExportButton ->
-                    ( Model model, [ IgnoreExportCsvMsgNoConfig ], Nothing )
-
-        ExportCsvMsg filename ->
-            case model.options.csvExport of
-                CsvExportButton csvExportConfig ->
-                    ( Model model, [ tableToCsv (Model model) csvExportConfig filename |> DownloadTableAsCsv ], Nothing )
+                    ( Model model, [ tableToCsv (Model model) csvExportConfig csvExportType filename |> DownloadTableAsCsv ], Nothing )
 
                 NoCsvExportButton ->
                     ( Model model, [ IgnoreExportCsvMsgNoConfig ], Nothing )
@@ -711,7 +699,7 @@ updateFilter =
 
 {-| Internal Msg that produces the CSV export event; used in tests
 -}
-exportCsv : String -> Msg msg
+exportCsv : CsvExportType -> String -> Msg msg
 exportCsv =
     ExportCsvMsg
 
@@ -802,18 +790,16 @@ storageValueTypeText valueType =
 {- CSV EXPORT -}
 
 
-{-| All data to CSV export function
+{-| Data to CSV export function
 -}
-tableToCsvAll : Model row msg -> CsvExportConfig row msg -> String -> CsvExportData
-tableToCsvAll (Model model) csvExportConfig filename =
-    dataToCsv model.columns model.initialData csvExportConfig filename
+tableToCsv : Model row msg -> CsvExportConfig row msg -> CsvExportType -> String -> CsvExportData
+tableToCsv (Model model) csvExportConfig csvExportType filename =
+    case csvExportType of
+        ExportAll ->
+            dataToCsv model.columns model.initialData csvExportConfig filename
 
-
-{-| Filtered data to CSV export function
--}
-tableToCsv : Model row msg -> CsvExportConfig row msg -> String -> CsvExportData
-tableToCsv (Model model) csvExportConfig filename =
-    dataToCsv model.columns model.data csvExportConfig filename
+        ExportFiltered ->
+            dataToCsv model.columns model.data csvExportConfig filename
 
 
 {-| Data to CSV export function
@@ -986,19 +972,39 @@ viewCsvExportButton options =
             text ""
 
         CsvExportButton { btnAttributes } ->
-            button
-                ([ class "btn btn-primary"
-                 , attribute "aria-label" "Export CSV"
-                 , tabindex 0
-                 , type_ "button"
-                 , onClick ExportCsvRequest
-                 ]
-                    ++ btnAttributes
-                )
-                [ span []
-                    [ text "Export"
-                    , text " "
-                    , i [ class "fa fa-table" ] []
+            div
+                [ class "btn-group" ]
+                [ button
+                    ([ attribute "data-bs-toggle" "dropdown"
+                     , attribute "aria-label" "Export CSV"
+                     , attribute "aria-expanded" "false"
+                     , class "btn btn-primary export-dropdown-toggle dropdown-toggle"
+                     ]
+                        ++ btnAttributes
+                    )
+                    [ span [ class "me-2 fa fa-file-download" ] []
+                    , text "Export CSV"
+                    , i [ class "ms-2 fa fa-dl" ] []
+                    , i [ class "caret" ] []
+                    ]
+                , ul
+                    [ class "dropdown-menu" ]
+                    [ li []
+                        [ button
+                            [ class "dropdown-item"
+                            , onClick (ExportCsvRequest ExportAll)
+                            ]
+                            [ span [] [ text "All entries" ]
+                            ]
+                        ]
+                    , li []
+                        [ button
+                            [ class "dropdown-item"
+                            , onClick (ExportCsvRequest ExportFiltered)
+                            ]
+                            [ span [] [ text "Filtered entries only" ]
+                            ]
+                        ]
                     ]
                 ]
 

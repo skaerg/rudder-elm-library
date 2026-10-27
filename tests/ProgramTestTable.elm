@@ -8,7 +8,7 @@ import List.Nonempty as NonEmpty
 import Ordering exposing (Ordering)
 import ProgramTest exposing (ProgramTest, clickButton, ensureViewHasNot, expectLastEffect, expectViewHas, expectViewHasNot, fillIn, start, withBaseUrl)
 import Rudder.Filters as Filters exposing (byValues)
-import Rudder.Table as Table exposing (Column, ColumnName(..), Config, Effect(..), FilterOptionsType(..), Model, Msg, Options, OutMsg(..), SortOrder(..), buildOptions, emptyMsg)
+import Rudder.Table as Table exposing (Column, ColumnName(..), Config, CsvExportType(..), Effect(..), FilterOptionsType(..), Model, Msg, Options, OutMsg(..), SortOrder(..), buildOptions, emptyMsg)
 import Test exposing (..)
 import Test.Html.Selector exposing (all, attribute, class, classes, containing, exactText, tag, text)
 import Url exposing (Url)
@@ -168,19 +168,18 @@ suite =
                 \() ->
                     start [] mockCsvConfig
                         |> expectViewHas
-                            [ all [ tag "button", containing [ tag "span", containing [ text "Export" ] ] ] ]
+                            [ all [ tag "button", containing [ text "Export" ] ] ]
             , test "if the csv export option is disabled, the \"Export\" button should not be displayed" <|
                 \() ->
                     start [] mockFilterConfig
                         |> expectViewHasNot
-                            [ all [ tag "button", containing [ tag "span", containing [ text "Export" ] ] ]
-                            ]
-            , test "if the export button is clicked, a CsvExportRequested msg should be created" <|
+                            [ all [ tag "button", containing [ text "Export" ] ] ]
+            , test "if the 'Filtered entries only' dropdown element is clicked, a (CsvExportRequested ExportFiltered) msg should be created" <|
                 \() ->
                     let
                         expectedEffect : TestEffect msg
                         expectedEffect =
-                            ( [], Just CsvExportRequested )
+                            ( [], Just (CsvExportRequested ExportFiltered) )
                     in
                     ProgramTest.createElement
                         { init = initElementWithEffect [] mockCsvConfig
@@ -188,7 +187,22 @@ suite =
                         , view = Table.view
                         }
                         |> ProgramTest.start ()
-                        |> clickButton "Export CSV"
+                        |> clickButton "Filtered entries only"
+                        |> expectLastEffect (\effect -> effect |> Expect.equal expectedEffect)
+            , test "if the 'All entries' dropdown element is clicked, a (CsvExportRequested ExportAll) msg should be created" <|
+                \() ->
+                    let
+                        expectedEffect : TestEffect msg
+                        expectedEffect =
+                            ( [], Just (CsvExportRequested ExportAll) )
+                    in
+                    ProgramTest.createElement
+                        { init = initElementWithEffect [] mockCsvConfig
+                        , update = testUpdateWithEffect
+                        , view = Table.view
+                        }
+                        |> ProgramTest.start ()
+                        |> clickButton "All entries"
                         |> expectLastEffect (\effect -> effect |> Expect.equal expectedEffect)
             ]
         , describe "filters"
