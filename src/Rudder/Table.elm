@@ -8,7 +8,7 @@ module Rudder.Table exposing
     , Customizations, CustomizationsBuilder, buildCustomizations
     , CsvExportData
     , CsvExportType(..)
-    , CsvExportConfig, CsvExportOptions
+    , CsvExportConfig, CsvExportHtmlConfig, CsvExportOptions
     , FooterOptions
     , updateData, updateFilter, updateDataWithFilter
     , updateExportToCsv
@@ -46,7 +46,7 @@ It has a TEA approach, so it should be used with the [Nested TEA][nested-tea] ar
 @docs Customizations, CustomizationsBuilder, buildCustomizations
 @docs CsvExportData
 @docs CsvExportType
-@docs CsvExportConfig, CsvExportOptions
+@docs CsvExportConfig, CsvExportHtmlConfig, CsvExportOptions
 @docs FooterOptions
 
 
@@ -178,16 +178,27 @@ type alias StorageOptionsConfig msg =
     }
 
 
-{-| CSV export configuration
+{-| CSV export configuration for the 'default' dropdown export button
 -}
-type alias CsvExportConfig row parentMsg =
-    { entryToStringList : row -> List String, btnAttributes : List (Attribute (Msg parentMsg)) }
+type alias CsvExportConfig row =
+    { entryToStringList : row -> List String }
+
+
+{-| CSV export configuration for a customizable html button
+-}
+type alias CsvExportHtmlConfig row parentMsg =
+    { entryToStringList : row -> List String
+    , exportMode : CsvExportType
+    , btnAttributes : List (Attribute (Msg parentMsg))
+    , btnChildren : List (Html (Msg parentMsg))
+    }
 
 
 {-| Options for CSV export support of a given table
 -}
 type CsvExportOptions row msg
-    = CsvExportButton (CsvExportConfig row msg)
+    = CsvExportDropdownButton (CsvExportConfig row) -- default dropdown button with an option for both export types
+    | CsvExportHtmlButton (CsvExportHtmlConfig row msg) -- customizable button
     | NoCsvExportButton
 
 
@@ -360,7 +371,8 @@ type alias OptionsBuilder row msg =
     , withRefresh : List (Attribute (Msg msg)) -> Options row msg -> Options row msg
     , withStorage : StorageOptionsConfig msg -> Options row msg -> Options row msg
     , withFilter : FilterOptionsType row msg -> Options row msg -> Options row msg
-    , withCsvExport : CsvExportConfig row msg -> Options row msg -> Options row msg
+    , withCsvExport : CsvExportConfig row -> Options row msg -> Options row msg
+    , withCsvExportHtml : CsvExportHtmlConfig row msg -> Options row msg -> Options row msg
     , withFooter : Options row msg -> Options row msg
     }
 
@@ -401,7 +413,8 @@ buildOptions =
     , withRefresh = \opt -> \state -> { state | refresh = RefreshButtonOptions opt }
     , withStorage = \opt -> \state -> { state | storage = StorageOptions opt }
     , withFilter = \opt -> \state -> { state | filter = FilterOptions opt }
-    , withCsvExport = \opt -> \state -> { state | csvExport = CsvExportButton opt }
+    , withCsvExport = \opt -> \state -> { state | csvExport = CsvExportDropdownButton opt }
+    , withCsvExportHtml = \opt -> \state -> { state | csvExport = CsvExportHtmlButton opt }
     , withFooter = \state -> { state | footer = Footer }
     }
 
@@ -592,8 +605,11 @@ updateWithEffect msg (Model model) =
 
         ExportCsvMsg csvExportType filename ->
             case model.options.csvExport of
-                CsvExportButton csvExportConfig ->
+                CsvExportDropdownButton csvExportConfig ->
                     ( Model model, [ tableToCsv (Model model) csvExportConfig csvExportType filename |> DownloadTableAsCsv ], Nothing )
+
+                CsvExportHtmlButton csvExportHtmlConfig ->
+                    ( Model model, [ tableToCsv (Model model) csvExportHtmlConfig csvExportType filename |> DownloadTableAsCsv ], Nothing )
 
                 NoCsvExportButton ->
                     ( Model model, [ IgnoreExportCsvMsgNoConfig ], Nothing )
@@ -792,20 +808,20 @@ storageValueTypeText valueType =
 
 {-| Data to CSV export function
 -}
-tableToCsv : Model row msg -> CsvExportConfig row msg -> CsvExportType -> String -> CsvExportData
-tableToCsv (Model model) csvExportConfig csvExportType filename =
+tableToCsv : Model row msg -> { config | entryToStringList : row -> List String } -> CsvExportType -> String -> CsvExportData
+tableToCsv (Model model) { entryToStringList } csvExportType filename =
     case csvExportType of
         ExportAll ->
-            dataToCsv model.columns model.initialData csvExportConfig filename
+            dataToCsv model.columns model.initialData entryToStringList filename
 
         ExportFiltered ->
-            dataToCsv model.columns model.data csvExportConfig filename
+            dataToCsv model.columns model.data entryToStringList filename
 
 
 {-| Data to CSV export function
 -}
-dataToCsv : NonEmptyList.Nonempty (Column row msg) -> List row -> CsvExportConfig row msg -> String -> CsvExportData
-dataToCsv tableColumns tableData { entryToStringList } filename =
+dataToCsv : NonEmptyList.Nonempty (Column row msg) -> List row -> (row -> List String) -> String -> CsvExportData
+dataToCsv tableColumns tableData entryToStringList filename =
     let
         -- first row contains column names
         columns : List String
@@ -971,21 +987,17 @@ viewCsvExportButton options =
         NoCsvExportButton ->
             text ""
 
-        CsvExportButton { btnAttributes } ->
+        CsvExportDropdownButton _ ->
             div
                 [ class "btn-group" ]
                 [ button
-                    ([ attribute "data-bs-toggle" "dropdown"
-                     , attribute "aria-label" "Export CSV"
-                     , attribute "aria-expanded" "false"
-                     , class "btn btn-primary export-dropdown-toggle dropdown-toggle"
-                     ]
-                        ++ btnAttributes
-                    )
+                    [ attribute "data-bs-toggle" "dropdown"
+                    , attribute "aria-label" "Export CSV"
+                    , attribute "aria-expanded" "false"
+                    , class "btn btn-primary export-dropdown-toggle dropdown-toggle"
+                    ]
                     [ span [ class "me-2 fa fa-file-download" ] []
-                    , text "Export CSV"
-                    , i [ class "ms-2 fa fa-dl" ] []
-                    , i [ class "caret" ] []
+                    , span [ class "me-2" ] [ text "Export CSV" ]
                     ]
                 , ul
                     [ class "dropdown-menu" ]
@@ -1007,6 +1019,11 @@ viewCsvExportButton options =
                         ]
                     ]
                 ]
+
+        CsvExportHtmlButton { btnAttributes, btnChildren, exportMode } ->
+            button
+                ((ExportCsvRequest exportMode |> onClick) :: btnAttributes)
+                btnChildren
 
 
 viewFooter : Int -> Int -> Int -> Options row msg -> List (Html (Msg msg))

@@ -92,7 +92,6 @@ mockConfig options =
             NonEmpty.Nonempty "" []
 
         ordering =
-            --fixme
             \_ -> \_ -> LT
 
         renderHtml =
@@ -106,8 +105,7 @@ mockCsvConfig =
     let
         options =
             buildOptions.newOptions
-                --fixme
-                |> buildOptions.withCsvExport { entryToStringList = \_ -> [], btnAttributes = [] }
+                |> buildOptions.withCsvExport { entryToStringList = \_ -> [] }
     in
     mockConfig options
 

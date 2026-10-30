@@ -109,9 +109,7 @@ csvModelFuzz columnNames entryToStringList data =
         options =
             buildOptions.newOptions
                 |> buildOptions.withCsvExport
-                    { entryToStringList = entryToStringList
-                    , btnAttributes = []
-                    }
+                    { entryToStringList = entryToStringList }
 
         config =
             constant Config
